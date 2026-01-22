@@ -422,7 +422,7 @@ public class StreamSettings extends AppCompatActivity {
                     category.removePreference(findPreference("checkbox_enable_device_rumble"));
                 }
             } */
-            else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
                     !((Vibrator)getActivity().getSystemService(Context.VIBRATOR_SERVICE)).hasAmplitudeControl()) {
                 // Remove the vibration strength selector of the device doesn't have amplitude control
                 category_gamepad_settings.removePreference(findPreference("seekbar_vibrate_fallback_strength"));
@@ -1085,5 +1085,6 @@ public class StreamSettings extends AppCompatActivity {
         }
     }
 }
+
 
 
