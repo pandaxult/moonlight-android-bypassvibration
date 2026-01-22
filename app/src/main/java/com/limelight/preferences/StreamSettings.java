@@ -403,6 +403,7 @@ public class StreamSettings extends AppCompatActivity {
             }*/
             PreferenceCategory category_gamepad_settings =
                     (PreferenceCategory) findPreference("category_gamepad_settings");
+          /*
             // Remove the vibration options if the device can't vibrate
             if (!((Vibrator)getActivity().getSystemService(Context.VIBRATOR_SERVICE)).hasVibrator()) {
                 category_gamepad_settings.removePreference(findPreference("checkbox_vibrate_fallback"));
@@ -420,7 +421,7 @@ public class StreamSettings extends AppCompatActivity {
                 if (category != null) {
                     category.removePreference(findPreference("checkbox_enable_device_rumble"));
                 }
-            }
+            } */
             else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
                     !((Vibrator)getActivity().getSystemService(Context.VIBRATOR_SERVICE)).hasAmplitudeControl()) {
                 // Remove the vibration strength selector of the device doesn't have amplitude control
@@ -1084,4 +1085,5 @@ public class StreamSettings extends AppCompatActivity {
         }
     }
 }
+
 
