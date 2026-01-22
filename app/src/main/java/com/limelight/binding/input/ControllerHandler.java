@@ -924,6 +924,200 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         }
 
         if (context.rightStickXAxis != -1 && context.rightStickYAxis != -1) {
+    private InputDeviceContext createInputDeviceContextForDevice(InputDevice dev) {
+        InputDeviceContext context = new InputDeviceContext();
+        String devName = dev.getName();
+
+        LimeLog.info("Creating controller context for device: "+devName);
+        LimeLog.info("Vendor ID: " + dev.getVendorId());
+        LimeLog.info("Product ID: "+dev.getProductId());
+        LimeLog.info(dev.toString());
+
+        context.inputDevice = dev;
+        context.name = devName;
+        context.id = dev.getId();
+        context.external = isExternal(dev);
+
+        context.vendorId = dev.getVendorId();
+        context.productId = dev.getProductId();
+
+        // These aren't always present in the Android key layout files, so they won't show up
+        // in our normal InputDevice.hasKeys() probing.
+        context.hasPaddles = MoonBridge.guessControllerHasPaddles(context.vendorId, context.productId);
+        context.hasShare = MoonBridge.guessControllerHasShareButton(context.vendorId, context.productId);
+
+        // --- MODIFICARE PENTRU VIBRAȚII (FORCE RUMBLE) ---
+        if (prefConfig.enableDeviceRumble) {
+            context.vibrator = deviceVibrator;
+        } else {
+            // 1. Încercăm managerul nou pentru Android 12+ (S)
+            // Luăm referința chiar dacă sistemul zice că nu are vibrații
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                context.vibratorManager = dev.getVibratorManager();
+                // Presupunem că e Dual Motor (standard)
+                context.quadVibrators = false;
+            }
+            
+            // 2. FALLBACK OBLIGATORIU: Luăm obiectul Vibrator clasic necondiționat
+            context.vibrator = dev.getVibrator();
+        }
+        // ------------------------------------------------
+
+        // On Android 12, we can try to use the InputDevice's sensors. This may not work if the
+        // Linux kernel version doesn't have motion sensor support, which is common for third-party
+        // gamepads.
+        //
+        // Android 12 has a bug that causes InputDeviceSensorManager to cause a NPE on a background
+        // thread due to bad error checking in InputListener callbacks. InputDeviceSensorManager is
+        // created upon the first call to InputDevice.getSensorManager(), so we avoid calling this
+        // on Android 12 unless we have a gamepad that could plausibly have motion sensors.
+        // https://cs.android.com/android/_/android/platform/frameworks/base/+/8970010a5e9f3dc5c069f56b4147552accfcbbeb
+        if ((Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ||
+                (Build.VERSION.SDK_INT == Build.VERSION_CODES.S &&
+                        (context.vendorId == 0x054c || context.vendorId == 0x057e))) && // Sony or Nintendo
+                prefConfig.gamepadMotionSensors) {
+            if (dev.getSensorManager().getDefaultSensor(Sensor.TYPE_ACCELEROMETER) != null || dev.getSensorManager().getDefaultSensor(Sensor.TYPE_GYROSCOPE) != null) {
+                context.sensorManager = dev.getSensorManager();
+            }
+        }
+
+        // Check if this device has a usable RGB LED and cache that result
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            for (Light light : dev.getLightsManager().getLights()) {
+                if (light.hasRgbControl()) {
+                    context.hasRgbLed = true;
+                    break;
+                }
+            }
+        }
+
+        // Detect if the gamepad has Mode and Select buttons according to the Android key layouts.
+        // We do this first because other codepaths below may override these defaults.
+        boolean[] buttons = dev.hasKeys(KeyEvent.KEYCODE_BUTTON_MODE, KeyEvent.KEYCODE_BUTTON_SELECT, KeyEvent.KEYCODE_BACK, 0);
+        context.hasMode = buttons[0];
+        context.hasSelect = buttons[1] || buttons[2];
+
+        context.touchpadXRange = dev.getMotionRange(MotionEvent.AXIS_X, InputDevice.SOURCE_TOUCHPAD);
+        context.touchpadYRange = dev.getMotionRange(MotionEvent.AXIS_Y, InputDevice.SOURCE_TOUCHPAD);
+        context.touchpadPressureRange = dev.getMotionRange(MotionEvent.AXIS_PRESSURE, InputDevice.SOURCE_TOUCHPAD);
+
+        context.leftStickXAxis = MotionEvent.AXIS_X;
+        context.leftStickYAxis = MotionEvent.AXIS_Y;
+        if (getMotionRangeForJoystickAxis(dev, context.leftStickXAxis) != null &&
+                getMotionRangeForJoystickAxis(dev, context.leftStickYAxis) != null) {
+            // This is a gamepad
+            hasGameController = true;
+            context.hasJoystickAxes = true;
+        }
+
+        // This is hack to deal with the Nvidia Shield's modifications that causes the DS4 clickpad
+        // to work as a duplicate Select button instead of a unique button we can handle separately.
+        context.isDualShockStandaloneTouchpad =
+                context.vendorId == 0x054c && // Sony
+                devName.endsWith(" Touchpad") &&
+                dev.getSources() == (InputDevice.SOURCE_KEYBOARD | InputDevice.SOURCE_MOUSE);
+
+        InputDevice.MotionRange leftTriggerRange = getMotionRangeForJoystickAxis(dev, MotionEvent.AXIS_LTRIGGER);
+        InputDevice.MotionRange rightTriggerRange = getMotionRangeForJoystickAxis(dev, MotionEvent.AXIS_RTRIGGER);
+        InputDevice.MotionRange brakeRange = getMotionRangeForJoystickAxis(dev, MotionEvent.AXIS_BRAKE);
+        InputDevice.MotionRange gasRange = getMotionRangeForJoystickAxis(dev, MotionEvent.AXIS_GAS);
+        InputDevice.MotionRange throttleRange = getMotionRangeForJoystickAxis(dev, MotionEvent.AXIS_THROTTLE);
+        if (leftTriggerRange != null && rightTriggerRange != null)
+        {
+            // Some controllers use LTRIGGER and RTRIGGER (like Ouya)
+            context.leftTriggerAxis = MotionEvent.AXIS_LTRIGGER;
+            context.rightTriggerAxis = MotionEvent.AXIS_RTRIGGER;
+        }
+        else if (brakeRange != null && gasRange != null)
+        {
+            // Others use GAS and BRAKE (like Moga)
+            context.leftTriggerAxis = MotionEvent.AXIS_BRAKE;
+            context.rightTriggerAxis = MotionEvent.AXIS_GAS;
+        }
+        else if (brakeRange != null && throttleRange != null)
+        {
+            // Others use THROTTLE and BRAKE (like Xiaomi)
+            context.leftTriggerAxis = MotionEvent.AXIS_BRAKE;
+            context.rightTriggerAxis = MotionEvent.AXIS_THROTTLE;
+        }
+        else
+        {
+            InputDevice.MotionRange rxRange = getMotionRangeForJoystickAxis(dev, MotionEvent.AXIS_RX);
+            InputDevice.MotionRange ryRange = getMotionRangeForJoystickAxis(dev, MotionEvent.AXIS_RY);
+            if (rxRange != null && ryRange != null && devName != null) {
+                if (dev.getVendorId() == 0x054c) { // Sony
+                    if (dev.hasKeys(KeyEvent.KEYCODE_BUTTON_C)[0]) {
+                        LimeLog.info("Detected non-standard DualShock 4 mapping");
+                        context.isNonStandardDualShock4 = true;
+                    } else {
+                        LimeLog.info("Detected DualShock 4 (Linux standard mapping)");
+                        context.usesLinuxGamepadStandardFaceButtons = true;
+                    }
+                }
+
+                if (context.isNonStandardDualShock4) {
+                    // The old DS4 driver uses RX and RY for triggers
+                    context.leftTriggerAxis = MotionEvent.AXIS_RX;
+                    context.rightTriggerAxis = MotionEvent.AXIS_RY;
+
+                    // DS4 has Select and Mode buttons (possibly mapped non-standard)
+                    context.hasSelect = true;
+                    context.hasMode = true;
+                }
+                else {
+                    // If it's not a non-standard DS4 controller, it's probably an Xbox controller or
+                    // other sane controller that uses RX and RY for right stick and Z and RZ for triggers.
+                    context.rightStickXAxis = MotionEvent.AXIS_RX;
+                    context.rightStickYAxis = MotionEvent.AXIS_RY;
+
+                    // While it's likely that Z and RZ are triggers, we may have digital trigger buttons
+                    // instead. We must check that we actually have Z and RZ axes before assigning them.
+                    if (getMotionRangeForJoystickAxis(dev, MotionEvent.AXIS_Z) != null &&
+                            getMotionRangeForJoystickAxis(dev, MotionEvent.AXIS_RZ) != null) {
+                        context.leftTriggerAxis = MotionEvent.AXIS_Z;
+                        context.rightTriggerAxis = MotionEvent.AXIS_RZ;
+                    }
+                }
+
+                // Triggers always idle negative on axes that are centered at zero
+                context.triggersIdleNegative = true;
+            }
+        }
+
+        if (context.rightStickXAxis == -1 && context.rightStickYAxis == -1) {
+            InputDevice.MotionRange zRange = getMotionRangeForJoystickAxis(dev, MotionEvent.AXIS_Z);
+            InputDevice.MotionRange rzRange = getMotionRangeForJoystickAxis(dev, MotionEvent.AXIS_RZ);
+
+            // Most other controllers use Z and RZ for the right stick
+            if (zRange != null && rzRange != null) {
+                context.rightStickXAxis = MotionEvent.AXIS_Z;
+                context.rightStickYAxis = MotionEvent.AXIS_RZ;
+            }
+            else {
+                InputDevice.MotionRange rxRange = getMotionRangeForJoystickAxis(dev, MotionEvent.AXIS_RX);
+                InputDevice.MotionRange ryRange = getMotionRangeForJoystickAxis(dev, MotionEvent.AXIS_RY);
+
+                // Try RX and RY now
+                if (rxRange != null && ryRange != null) {
+                    context.rightStickXAxis = MotionEvent.AXIS_RX;
+                    context.rightStickYAxis = MotionEvent.AXIS_RY;
+                }
+            }
+        }
+
+        // Some devices have "hats" for d-pads
+        InputDevice.MotionRange hatXRange = getMotionRangeForJoystickAxis(dev, MotionEvent.AXIS_HAT_X);
+        InputDevice.MotionRange hatYRange = getMotionRangeForJoystickAxis(dev, MotionEvent.AXIS_HAT_Y);
+        if (hatXRange != null && hatYRange != null) {
+            context.hatXAxis = MotionEvent.AXIS_HAT_X;
+            context.hatYAxis = MotionEvent.AXIS_HAT_Y;
+        }
+
+        if (context.leftStickXAxis != -1 && context.leftStickYAxis != -1) {
+            context.leftStickDeadzoneRadius = (float) stickDeadzone;
+        }
+
+        if (context.rightStickXAxis != -1 && context.rightStickYAxis != -1) {
             context.rightStickDeadzoneRadius = (float) stickDeadzone;
         }
 
@@ -1016,7 +1210,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         LimeLog.info("Trigger deadzone: "+context.triggerDeadzone);
 
         return context;
-    }
+        }
+
 
     private InputDeviceContext getContextForEvent(InputEvent event) {
         // Don't return a context if we're stopped
@@ -3477,4 +3672,5 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         }
     }
 }
+
 
