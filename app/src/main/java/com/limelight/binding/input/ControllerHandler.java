@@ -736,21 +736,24 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         context.hasPaddles = MoonBridge.guessControllerHasPaddles(context.vendorId, context.productId);
         context.hasShare = MoonBridge.guessControllerHasShareButton(context.vendorId, context.productId);
 
+                // MODIFICARE BYPASS: Ignorăm verificarea hasVibrator()
         if (prefConfig.enableDeviceRumble) {
             context.vibrator = deviceVibrator;
         } else {
-            // Try to use the InputDevice's associated vibrators first
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && hasQuadAmplitudeControlledRumbleVibrators(dev.getVibratorManager())) {
+            // 1. Încercăm managerul nou pentru Android 12+ (S)
+            // Luăm referința chiar dacă sistemul zice că nu are vibrații
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 context.vibratorManager = dev.getVibratorManager();
-                context.quadVibrators = true;
+                // Presupunem că e Dual Motor (standard) ca să nu fim blocați de verificări
+                context.quadVibrators = false; 
             }
-            else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && hasDualAmplitudeControlledRumbleVibrators(dev.getVibratorManager())) {
-                context.vibratorManager = dev.getVibratorManager();
-                context.quadVibrators = false;
-            }
-            else if (dev.getVibrator().hasVibrator()) {
-                context.vibrator = dev.getVibrator();
-            }
+            
+            // 2. FALLBACK OBLIGATORIU: Luăm obiectul Vibrator clasic
+            // Aici era problema ta: înainte era "else if (dev.getVibrator().hasVibrator())"
+            // Acum îl luăm necondiționat!
+            context.vibrator = dev.getVibrator();
+        }
+
             else if (!context.external) {
                 // If this is an internal controller, try to use the device's vibrator
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && hasQuadAmplitudeControlledRumbleVibrators(deviceVibratorManager)) {
@@ -3340,10 +3343,14 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 reportedType = type;
             }
 
-            // We can perform basic rumble with any vibrator
+                        // FORCE RUMBLE: Îi spunem PC-ului că avem Rumble indiferent de situație
+            capabilities |= MoonBridge.LI_CCAP_RUMBLE;
+
+            // Păstrăm logica originală doar ca backup, dar linia de sus face toata treaba
             if (vibrator != null) {
                 capabilities |= MoonBridge.LI_CCAP_RUMBLE;
             }
+            
 
             // Shield controllers use special APIs for rumble and battery state
             if (sceManager.isRecognizedDevice(inputDevice)) {
@@ -3470,3 +3477,4 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         }
     }
 }
+
