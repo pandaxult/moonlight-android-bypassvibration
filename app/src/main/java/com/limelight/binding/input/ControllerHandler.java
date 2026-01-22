@@ -897,19 +897,6 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             }
         }
 
-        // Some devices have "hats" for d-pads
-        InputDevice.MotionRange hatXRange = getMotionRangeForJoystickAxis(dev, MotionEvent.AXIS_HAT_X);
-        InputDevice.MotionRange hatYRange = getMotionRangeForJoystickAxis(dev, MotionEvent.AXIS_HAT_Y);
-        if (hatXRange != null && hatYRange != null) {
-            context.hatXAxis = MotionEvent.AXIS_HAT_X;
-            context.hatYAxis = MotionEvent.AXIS_HAT_Y;
-        }
-
-        if (context.leftStickXAxis != -1 && context.leftStickYAxis != -1) {
-            context.leftStickDeadzoneRadius = (float) stickDeadzone;
-        }
-
-        if (context.rightStickXAxis != -1 && context.rightStickYAxis != -1) {
     private InputDeviceContext createInputDeviceContextForDevice(InputDevice dev) {
         InputDeviceContext context = new InputDeviceContext();
         String devName = dev.getName();
@@ -3658,6 +3645,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         }
     }
 }
+
 
 
 
